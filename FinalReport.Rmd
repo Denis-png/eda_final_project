@@ -1,0 +1,416 @@
+---
+title: "EDA FINAL REPORT"
+author: "Denis Golovenko"
+date: "31 05 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+source('./code/init_code.r')
+library(leaflet)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+```
+
+## Stations. stations, stations.
+
+*(all of the coding answers and prooves are in Part1(Questions).R)*
+
+**1.Our stations are all located in different parts of Europe.**  
+To proove this, let's just check if there is any station that is not located in Europe  
+
+**2.A simple 'for' loop, that counts number of stations by countries.**
+```{r countries}
+countries <- data.table(Country = unique(runoff_info[, Country]), Stations = 0)
+for (i in 1:length(runoff_info[, Station])){
+    for (j in 1:length(countries[, Country])){ 
+      if (runoff_info[i, Country] == countries[j, Country]){
+        countries[j, 2] <- countries[j, 2] + 1
+    }
+  }
+}
+countries
+```
+
+**3.As in previous question, I count stations with a help of 'for' loop.**
+```{r rivers}
+rivers <- data.table(River = unique(runoff_info[, River]), Stations = 0)
+for (i in 1:length(runoff_info[, Station])){
+  for (j in 1:length(rivers[, River])){ 
+    if (runoff_info[i, River] == rivers[j, River]){
+      rivers[j, 2] <- rivers[j, 2] + 1
+    }
+  }
+}
+rivers
+```
+
+**4.Here we can see average, maxima and minima of stations positon parameters.**
+```{r}
+stns_chars <- data.table(Stn = runoff_info[,Station], Lat = runoff_info[, Lat], Lon = runoff_info[, Lon], Alt = runoff_info[, Alt])
+
+dist_Avg <- data.table(AvgLat = mean(stns_chars[,Lat]), AvgLon = mean(stns_chars[,Lon]), AvgAlt = mean(stns_chars[,Alt], na.rm = TRUE))
+
+dist_Max <- data.table(MaxLat = max(stns_chars[,Lat]), MaxLon = max(stns_chars[,Lon]), MaxAlt = max(stns_chars[,Alt], na.rm = TRUE))
+
+dist_Min <- data.table(MinLat = min(stns_chars[,Lat]), MinLon = min(stns_chars[,Lon]), MinAlt = min(stns_chars[,Alt], na.rm = TRUE))
+
+dist_Avg
+dist_Max
+dist_Min
+```
+
+**5.Using R syntax we can see what are the recording duration parameters(in years).**
+```{r}
+stns_record <- data.table(Stn = runoff_info[,Station], RecLen = runoff_info[, N.Years])
+record_dist <- data.table(AvgRL = mean(stns_record[,RecLen]), MaxRL = max(stns_record[,RecLen]), MinRL = min(stns_record[,RecLen]))
+record_dist
+```
+
+## Rivers runoff exploration
+
+**1.Here please have a look at runoff statistics I got, number of stations is to big, to look readble in plot, but still we can see the distribution of values(e.g. mean discharge).**
+```{r}
+#Creating a stats table
+runoff_stats <- runoff_day[, .(mean = round(mean(value), 0), sd = round(sd(value), 0), min = min(value), max = max(value)), by = id]
+#Adding a coeficient variation
+runoff_stats$cv <- runoff_stats[, sd] / runoff_stats[, mean]
+#Data table for stations names by id
+runoff_snames <- runoff_info[,.(id = ID, Station)]
+#Just a helper for myself and for R
+runoff_stats$sname <- 'name'
+#Loop that assigns station's name by it's id(merge function died on this step)
+for (i in 1:length(runoff_snames$id)) {
+  for (j in 1:length(runoff_stats$id)){
+    if (runoff_snames[i, 1] == runoff_stats[j, 1]){
+      runoff_stats[j, 7] <- runoff_snames[i,2]
+    }
+  }
+} 
+# I'm doing this through a loop, because it's not working for me another easier way, not enough pc resources for this.
+#Let's have a look at some stats and test it
+runoff_stats
+
+ggplot(runoff_stats, aes(x = sname, y = mean)) +
+  geom_point()
+```
+
+**2.And also some estimated statistics. Spent some time on this, because it was pretty unclear for me what am I supposed to do, hope, I got it right.(Plot is for mean/high runoff)**  
+```{r}
+#Creating new estimation statistic values mean/high and mean/low runoffs
+runoff_stats_est <- runoff_stats[, .(id = id,MH = (mean/max), ML = (mean/min)), by = sname]
+
+runoff_stats_est
+#Plotting to test and see if it looks logical
+ggplot(runoff_stats_est, aes(x = sname , y = MH)) +
+  geom_point()
+```
+
+**3.Categories I created were based on the stations position relative to the Europe(Central EU, Western EU etc.) and their landform(Hill, Lowland etc.).**   
+Most of the work had been going on paper, I was writting down all the Lon and Lat limits basing on a regular school atlas. The same for the landform values.
+```{r}
+#Here the fun part begins. I decided to divide stations by their position on map, using lat and lon
+#All border were calculated by myself, they might not be that accutrate, but for this classification it's enough
+stn_pos <- runoff_info[,.(Station, Lat, Lon, Alt)]
+stn_pos[(Lat >= 55)&((Lon >= -18 & Lon <= -12)|(Lon > 0 & Lon <= 30)), Pos := factor('North')]
+stn_pos[(Lat > 43 & Lat <= 60)&(Lon >= -10 & Lon <= 5), Pos := factor('West')]
+stn_pos[(Lat >= 45 & Lat < 55)&(Lon >= 5 & Lon < 23), Pos := factor('Central')]
+stn_pos[(Lat > 35 & Lat <= 43)&(Lon >= -10 & Lon < 2), Pos := factor('SouthWest')]
+stn_pos[((Lat > 35 & Lat < 45)&(Lon >= 7 & Lon < 18))|((Lat > 35 & Lat < 42)&(Lon > 19 & Lon < 28)), Pos := factor('South')]
+stn_pos[(Lat > 42 & Lat < 47)&(Lon > 14 & Lon < 30), Pos := factor('SouthEast')]
+stn_pos[((Lat >=47 & Lat < 60)&(Lon > 20 & Lon < 60))|((Lat >= 42 & Lat < 70)&(Lon >= 30 & Lon <=60)), Pos := factor('East')]
+#Now let's charectarize it by Altitude.
+stn_pos[Alt <= 200, LF := factor('Lowland')]
+stn_pos[Alt > 200 & Alt <= 500, LF := factor('Hill')]
+stn_pos[Alt > 500 & Alt < 1000, LF := factor('Highland')]
+stn_pos[Alt >= 1000, LF := factor('LowMountain')]
+
+stn_pos
+
+#Assigning Position and landform values to my main dataset
+runoff_stats$Pos <- factor('Pos')
+runoff_stats$LF <- factor('Lowland')
+for (i in 1:length(stn_pos$Station)) {
+  for (j in 1:length(runoff_stats$sname)){
+    if (stn_pos[i, 1] == runoff_stats[j, 7]){
+      runoff_stats[j, 8] <- stn_pos[i,5]
+      runoff_stats[j, 9] <- stn_pos[i,6]
+    }
+  }
+}
+runoff_stats
+```
+
+**4.This part was the most challenging for me.**  
+Reading the task for the 100th time, I sill was getting clear what do I need to do here. Part about estimating statistics for the categories confused me most, so here is a result of how I got this.  
+**a)Estimation for each station**     
+```{r}
+#Creating a new characteristic before/after 1980
+runoff_day$year <- substring(runoff_day$date,1,4)
+runoff_day[year < 1980, year_type := factor('before')]
+runoff_day[year >= 1980, year_type := factor('after')]
+#Estimating values mean/high, mean/low runoffs by before/after year 1980(stations)
+runoff_before <- runoff_day[year < 1980, .(Bmean = mean(value), Bmax = max(value), Bmin = min(value)), by = id]
+runoff_after <- runoff_day[year >= 1980, .(Amean = mean(value), Amax = max(value), Amin = min(value)), by = id]
+runoff_before_est <- runoff_before[,.(MH_Before = Bmean / Bmax, ML_Before = Bmean / Bmin), by = id]
+runoff_after_est <- runoff_after[,.(MH_After = Amean / Amax, ML_After = Amean / Amin), by = id]
+runoff_ba_est <- merge(runoff_before_est, runoff_after_est, by = 'id')
+runoff_estimated <- merge(runoff_stats_est, runoff_ba_est, by = 'id')
+#Changes in mean/high by stations
+runoff_estimated
+
+ggplot(runoff_estimated, aes(x = sname, y = (MH_Before - MH_After)))+
+  geom_point()
+#Changes in mean/low by stations (Those point on top are trying to reach infinity value, that's happening because of lowest runoff value is equal to 0, and for all of them, but one, change is 0)
+ggplot(runoff_estimated, aes(x = sname, y = (ML_Before - ML_After)))+
+  geom_point()
+```
+  
+**b)Estimation for the categories**   
+```{r}
+#Estimating values mean/high, mean/low runoffs by before/after year 1980(categories)
+runoff_stats_better <- merge(runoff_stats, runoff_day[,.(year_type, id)], by = 'id')
+runoff_stats_final <- unique(runoff_stats_better)
+runoff_stats_final <- merge(runoff_ba_est, runoff_stats_final, by = 'id')
+#Changes in mean/high by position
+ggplot(runoff_stats_final, aes(x = Pos, y = (MH_Before - MH_After)))+
+  geom_point()
+#Changes in mean/low by position
+ggplot(runoff_stats_final, aes(x = Pos, y = (ML_Before - ML_After)))+
+  geom_point()
+
+## runoff_stats_final
+```
+
+**5.This step had been done many times during the lectures, so aggregating to winter/summer runoff was pretty automatic.**  
+```{r}
+#Characterizing our runoff values by seasons
+runoff_day$month <- as.numeric(substring(runoff_day$date,6,7))
+runoff_day$Season <- factor('Winter')
+runoff_day[month >= 3 & month <= 5, Season := factor('Spring')]
+runoff_day[month >= 6 & month <= 8, Season := factor('Summer')]
+runoff_day[month >= 9 & month <= 11, Season := factor('Autmn')]
+runoff_day
+#Aggregating mean values by seasons & before/after 1980
+runoff_summer_b <- runoff_day[Season == 'Summer' & year_type == 'before', .(value = mean(value)), by = .(id, year_type)]
+runoff_summer_a <- runoff_day[Season == 'Summer' & year_type == 'after', .(value = mean(value)), by = .(id, year_type)]
+runoff_winter_b <- runoff_day[Season == 'Winter' & year_type == 'before', .(value = mean(value)), by = .(id, year_type)]
+runoff_winter_a <- runoff_day[Season == 'Winter' & year_type == 'after', .(value = mean(value)), by = .(id, year_type)]
+```
+  As an quick example here is a data table with winter runoff after year 1980.
+```{r}
+runoff_winter_a
+```
+
+**6.A map of stations location**  
+When I got to this step, I decided to take a break for a week, because map were not working for me at all. I'm still not sure about a right solution for this, my pc has a lot of calculating resources, even though popups for 200+ stations are not working, so what I got is just a map of their locations with names of stations.
+```{r}
+m <- leaflet(data = runoff_change) %>%
+  addTiles() %>%
+  addMarkers(~Lon, ~Lat, label = ~sname)
+m
+
+```
+
+## Striking while the iron is hot.
+
+*Firstly maps didn't work for me, so I didn't choose any stations and took 5 random. I got an unique coding solution for all the task. Later, while I was writting this report, maps worked out! Stations I chosed then are: REYKJAFOSS(Island), POLMAK(Norway), CEATAL IZMAIL(Romania/Ukraine), KOELN(Germany), YAKSHA(Russia).*  
+
+### 1.Chosen stations 
+
+**-REYKJAFOSS(Island)**   
+**Main aspect:** Water sources impact.  
+I took this station, obviously, because it's isolated from the others by water, and based on north. So we can explore how cold waters affect runoff. Human impact is not that big there.  
+
+**-POLMAK(Norway)**   
+**Main aspect:** Glaciers impact  
+The most north stations. Just to see if there is any special impact from glaciers, and if there is, exploring runoff we can say if glaciers are melting a lot since time or not.  
+
+**-CEATAL IZMAIL(Romania/Ukraine)**   
+**Main aspect:** Warm climat and tourism.  
+The most south station, closest to the warm Black Sea. The is no cold long winter in this area, let's explore how runoff has changed there. Human impact is more than average, bacause of a tourism. People go there for a vacation not only in summer, but in winter too, so waters are affected by people during whole year. But it's not direct impact, and comes mostly from the sea.  
+
+**-KOELN(Germany)**  
+**Main aspect:** Human impact.  
+This station was chosen because of the interest to the human impact to runoff. Looking at human density map, Koln city was chosen as one of the densiest city(2668 human/km^2). Also impact from tourists. And the main reason of choosing KOELN station is that it's located at the center of city, human impact is going really big.  
+
+**-YAKSHA(Russia)**   
+**Main aspect:** No human impact.  
+No, I didn't choose this station because I'm Russian. I did this because this station is isolated not only from people but from water resources too. All river feeding is coming only from ground waters and precipitation. It must rain a lot, because of the Ural mountain stopping the air masses. So data from this station will show us how precipitation level might have changed since time.     
+
+```{r}
+stations <- c('REYKJAFOSS','POLMAK','CEATAL IZMAIL','KOELN','YAKSHA (YAKSHINSKAYA)')
+
+stations <- runoff_stats[sname %in% factor(stations), .(id, sname)]
+
+runoff_day_est <- merge(runoff_stats[,.(id,sname)], runoff_day_est, by = 'id')
+#Adding a year column 
+runoff_day_est$year <- as.numeric(substring(runoff_day_est$date,1,4))
+```
+
+### 2.Seasonality  
+**-CEATAL IZMAIL(Romania/Ukraine)**    
+*Here's no any noticible change in runoff since 1980. But we can say, that in warm seasons(spring, summer) it has raised a bit.*  
+**-KOELN(Germany)**  
+*The distribution of runoff stayed the same since 1980, but the values got a bit smaller.*  
+**-POLMAK(Norway)**  
+*Generally since 1980 we can notice, that runoff increased(e.g april, augest, september).*  
+**-REYKJAFOSS(Island) **  
+*Runoff in cold seasons(autmn, winter) decreased since 1980, but basing on summertime values, I'd say that it begin to increase, because there are more points getting closer to the border of 75, which is a high value for this station.*  
+**-YAKSHA(Russia)**  
+*Obvious increase of runoff in warm seasons.*  
+**a)Monthly seasonality after year 1980**   
+```{r}
+#Creating a data table with runoff by months.
+runoff_seasonal <- runoff_day_est[sname %in% stations$sname & year >= 1980, .(value, month), by = 'sname']
+
+ggplot(runoff_seasonal, aes(x = month, y = value))+
+  geom_point()+
+  facet_wrap(~sname, scales = 'free')
+```
+  
+**b)Monthly seasonality before 1980**   
+```{r}
+#Creating a data table with runoff by months.
+runoff_seasonal <- runoff_day_est[sname %in% stations$sname & year < 1980, .(value, month), by = 'sname']
+
+ggplot(runoff_seasonal, aes(x = month, y = value))+
+  geom_point()+
+  facet_wrap(~sname, scales = 'free')
+```
+
+
+# 3.Correlation matrix  
+*Here, I noticed that the change in runoff for:*  
+-Stations impacted mostly only form water/ice almost don't correlate.(REYKJAFOSS and POLMAK)  
+-Station impacted from people anti-correlate with station without human impact.(CEATAL IZMAIL,KOELN and YAKSHA)  
+-Interesting that, REYKJAFOSS and YAKSHA stations correlate the most, even though in common they have only the north location and the smallest human impact. But they almost don't correlate with POLMAK station, that is also has north location, but has much more human impact.  
+**Correlation matrix plot for data after year 1980**  
+```{r}
+# Preparing our correlation matrix to plot
+dt <- runoff_day_est[sname %in% stations$sname & year >=1980, .(value, year), by = 'sname']
+runoff_mat_year <- dcast(dt, year~sname, mean)
+runoff_cor_year <- cor(runoff_mat_year[, -1], use = "pairwise.complete.obs")
+to_plot <- melt(runoff_cor_year)
+#Plot
+ggplot(to_plot, aes(x = Var1 , y = Var2, fill = value))+
+  geom_tile(col = 'black')+
+  geom_text(aes(label = round(value, 1)))+
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab(label = "") +
+  ylab(label = "")
+```
+
+# 4.Regression slopes   
+**-CEATAL IZMAIL(Romania/Ukraine)**  
+*Since 1980 the winter runoff values became more aggregated and closer to a maxima value. It got higher, but looks to stay stable, not going out of the new range.*   
+**-KOELN(Germany)**  
+*Its winter runoff stayed pretty stable before 1980.*  
+**-POLMAK(Finland)**  
+*Very small increase in runoff since 1980 is noticeble(in year ~2005).*  
+**-REYKJAFOSS(Island) **  
+*Before 1980 winter runoff was decreasing, but since 1980 it got stable for a bit and then decreasing started again.*  
+**-YAKSHA(Russia)**  
+*Lack of measurments. But we can say, that its winter runoff began to increase.*     
+**a)Regression slopes for a winter runnoff(before/after)**     
+```{r}
+#Creating a dt to plot a regression slopes
+to_plot_sl <- runoff_day_est[sname %in% stations$sname, .(value, Season, year), by = 'sname']
+to_plot_sl_af <- to_plot_sl[year >= 1980, .(mean = round(mean(value),0)), by = .(Season, year, sname)]
+to_plot_summer_af <- to_plot_sl_af[Season == 'Summer'] 
+to_plot_winter_af <- to_plot_sl_af[Season == 'Winter'] 
+#Creating a dt to plot a regression slopes
+to_plot_sl <- runoff_day_est[sname %in% stations$sname, .(value, Season, year), by = 'sname']
+to_plot_sl_bf <- to_plot_sl[year < 1980, .(mean = round(mean(value),0)), by = .(Season, year, sname)]
+to_plot_summer_bf <- to_plot_sl_bf[Season == 'Summer'] 
+to_plot_winter_bf <- to_plot_sl_bf[Season == 'Winter'] 
+#A plot of regression slope before 1980
+ggplot(to_plot_winter_bf, aes(x = year, y = mean)) +
+  geom_point(aes(col = sname)) +
+  geom_smooth(method = 'loess', formula = y ~ x, se = 0) +
+  facet_wrap(~sname, scales = 'free')+
+  xlab(label = "YEAR") +
+  ylab(label = "Runoff(m3/s)") +
+  theme_bw()
+#A plot of regression slope after 1980
+ggplot(to_plot_winter_af, aes(x = year, y = mean)) +
+  geom_point(aes(col = sname)) +
+  geom_smooth(method = 'loess', formula = y ~ x, se = 0) +
+  facet_wrap(~sname, scales = 'free')+
+  xlab(label = "YEAR") +
+  ylab(label = "Runoff(m3/s)") +
+  theme_bw()
+```
+
+**-CEATAL IZMAIL(Romania/Ukraine)**    
+*Summer runoff definately decreased since 1980, even though the slope's behaviour stays the same.*   
+**-KOELN(Germany)**   
+*There's a small increase in runoff on the edge of 1980, but then it becomes stable and stays close to the same value.*  
+**-POLMAK(Finland)**  
+*Mean summer runoff has increased, but keeps behaving the same.*  
+**-REYKJAFOSS(Island) **  
+*Interesting, that before 1980 summer runoff had been increasing, but since 1980 it has stabilized and stays on the same mean value.*  
+**-YAKSHA(Russia)**  
+*Still lack of measurements. But moving closer to nowdays, it's runoff is decreasing.*    
+**b)Regression slopes for a summer runoff(before/after)**  
+```{r}
+#Creating a dt to plot a regression slopes
+to_plot_sl <- runoff_day_est[sname %in% stations$sname, .(value, Season, year), by = 'sname']
+to_plot_sl_af <- to_plot_sl[year >= 1980, .(mean = round(mean(value),0)), by = .(Season, year, sname)]
+to_plot_summer_af <- to_plot_sl_af[Season == 'Summer'] 
+to_plot_winter_af <- to_plot_sl_af[Season == 'Winter'] 
+#Creating a dt to plot a regression slopes
+to_plot_sl <- runoff_day_est[sname %in% stations$sname, .(value, Season, year), by = 'sname']
+to_plot_sl_bf <- to_plot_sl[year < 1980, .(mean = round(mean(value),0)), by = .(Season, year, sname)]
+to_plot_summer_bf <- to_plot_sl_bf[Season == 'Summer'] 
+to_plot_winter_bf <- to_plot_sl_bf[Season == 'Winter'] 
+#A plot of regression slope before 1980
+ggplot(to_plot_summer_bf, aes(x = year, y = mean)) +
+  geom_point(aes(col = sname)) +
+  geom_smooth(method = 'loess', formula = y ~ x, se = 0) +
+  facet_wrap(~sname, scales = 'free')+
+  xlab(label = "YEAR") +
+  ylab(label = "Runoff(m3/s)") +
+  theme_bw()
+#A plot of regression slope after 1980
+ggplot(to_plot_summer_af, aes(x = year, y = mean)) +
+  geom_point(aes(col = sname)) +
+  geom_smooth(method = 'loess', formula = y ~ x, se = 0) +
+  facet_wrap(~sname, scales = 'free')+
+  xlab(label = "YEAR") +
+  ylab(label = "Runoff(m3/s)") +
+  theme_bw()
+```
+
+## Let's summarize.  
+
+### 1.CETAL IZMAIL
+This station represents impact of tourists and warm climate on a river runoff. We haven't noticed any important changes in seasonality plots, but regression slopes showed us, that winter runoff increased, while summer runoff decreased.  
+ Even though it's warmer in summer, its runoff has decreased, but when tourists leave, runoff increases, even though it's winter time. Due to the warm climate, rivers runoff changes shouldn't be really noticeable, but it is.    
+ **Rivers runoff is affected by tourists**  
+
+### 2.KOELN  
+This stations should've shown us the constant impact of people on the rivers runoff. There weren't interesting changes, it keeps stable. But the runoff values are big relatively to the other(except CETAL IZMAIL) stations without a lot of human impact.  
+**Stable amount of people living in the area keeps the runoff stable. Human density impacts the size of runoff.**  
+
+### 3.POLMAK  
+All the changes were pointing to the increase of runoff in timescale, not depending on season. This river is mostly impacted by glaciers, other impacts are not that noticeable.  
+**Northen European glaciers might be slowly melting, this increases the north rivers runoff.**  
+
+### 4.REYKJAFOSS  
+The only impact on this river is water around the island. Its runoff stays stable whole time, and there haven't been any important changes before and after year 1980.   
+**Rivers isolated from other impacts and impacted by only water sources have a stable runoff.**  
+
+### 5.YAKSHA  
+This station isolated from impacts as REYKJAFOSS station, but it's located on a continent. Still its behaviour is very similar, but runoff impact was comming only from groundwaters. It's runoff also was more logical and season-depending, than REYKJAFOSS's runoff.  
+**Rivers impacted by only water sources and located on the continent have a stable runoff.**  
+
+
+# Summarizing the summarize  
+**Rivers runoff is impacted mostly by human, directly and indirectly.**  
+**Any change in runoff since 1980 is connetcted to the human activity.**
+
+
+
+
+
+
